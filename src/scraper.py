@@ -142,25 +142,39 @@ def parse_reviews(html: str) -> List[Dict]:
 
     Returns a list of dicts. Color and storage are intentionally NOT
     extracted — see module docstring for rationale.
+
+    Selectors updated 2026-05-23 to match amazon.in's current markup:
+    Amazon moved from kebab-case (`review-title`, `review-body`) to
+    camelCase (`reviewTitle`, `reviewRichContentContainer`) hooks.
     """
     soup = BeautifulSoup(html, "lxml")
     reviews: List[Dict] = []
 
     for block in soup.select('div[data-hook="review"]'):
         try:
-            # Defensive selector chain: Amazon's HTML varies subtly across
-            # products and time, so we try several known patterns.
+            # Title: now lives inside h5[data-hook="reviewTitle"]
+            # We try the new (camelCase) hook first, then fall back to
+            # the legacy (kebab-case) one in case Amazon flips back.
             title_el = (
-                block.select_one('a[data-hook="review-title"] span:not([class])')
-                or block.select_one('span[data-hook="review-title"] span:not([class])')
-                or block.select_one('a[data-hook="review-title"]')
+                block.select_one('h5[data-hook="reviewTitle"]')
+                or block.select_one('a[data-hook="review-title"] span:not([class])')
+                or block.select_one('span[data-hook="review-title"]')
             )
-            text_el = block.select_one('span[data-hook="review-body"] span')
+
+            # Body: now under div[data-hook="reviewRichContentContainer"]
+            # The text is wrapped in <p><span>...</span></p> blocks.
+            body_el = (
+                block.select_one('div[data-hook="reviewRichContentContainer"]')
+                or block.select_one('span[data-hook="review-body"] span')
+                or block.select_one('span[data-hook="review-body"]')
+            )
+
+            # These three are unchanged in the current markup
             verified_el = block.select_one('span[data-hook="avp-badge"]')
             date_el = block.select_one('span[data-hook="review-date"]')
 
             rating = _parse_rating(block)
-            text = _safe_text(text_el)
+            text = _safe_text(body_el)
 
             # Required fields — skip the block if these aren't present
             if not text or rating is None:
@@ -178,7 +192,6 @@ def parse_reviews(html: str) -> List[Dict]:
             log.debug("skipping a review block: %s", e)
 
     return reviews
-
 
 # ---------------------------------------------------------------------------
 # Top-level loop
