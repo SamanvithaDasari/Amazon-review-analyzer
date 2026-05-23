@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project-specific
+.DS_Store
+data/raw_scraped_DEBUG/
+*.log
+
+# IMPORTANT: do NOT ignore data/reviews.db — we commit it for deployment

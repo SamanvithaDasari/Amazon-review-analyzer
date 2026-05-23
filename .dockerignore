@@ -1,0 +1,12 @@
+.git
+.github
+.devcontainer
+notebooks/
+tests/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+README.md
+DECISIONS.md
+.pytest_cache/
+.vscode/
