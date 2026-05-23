@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+{% if stats %}
+<p class="subtitle">
+  Sentiment overview for <strong>{{ stats.total_reviews }}</strong>
+  iPhone 12 reviews from amazon.in
+</p>
+
+<div class="grid grid-3">
+  <div class="card">
+    <h3>Sentiment</h3>
+    <ul class="bar-list">
+      {% for label, count in stats.sentiment_distribution.items() %}
+      <li>
+        <span class="lbl lbl-{{ label }}">{{ label }}</span>
+        <span class="count">{{ count }}</span>
+      </li>
+      {% else %}
+      <li class="muted">No sentiment data yet.</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Ratings</h3>
+    <ul class="bar-list">
+      {% for r in ['5','4','3','2','1'] %}
+        {% set c = stats.rating_distribution.get(r, 0) %}
+        <li>
+          <span class="lbl">{{ r }}★</span>
+          <span class="count">{{ c }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Average rating</h3>
+    <p class="big-number">{{ stats.average_rating or '—' }}</p>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Top keywords (TF-IDF)</h3>
+  <ul class="kw">
+    {% for kw in stats.top_keywords %}
+      <li>{{ kw.term }}</li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="card">
+  <h3>Aspect-based sentiment</h3>
+  <p class="muted">
+    Per-aspect sentiment from sentence-level VADER scoring. Even in
+    uniformly positive reviews, aspects can differ in praise vs criticism.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Aspect</th>
+        <th class="num">Mentions</th>
+        <th class="num">Positive</th>
+        <th class="num">Negative</th>
+        <th class="num">Neutral</th>
+        <th class="num">% Positive</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in stats.aspects %}
+      <tr>
+        <td>{{ a.aspect }}</td>
+        <td class="num">{{ a.mentions }}</td>
+        <td class="num pos">{{ a.positive }}</td>
+        <td class="num neg">{{ a.negative }}</td>
+        <td class="num">{{ a.neutral }}</td>
+        <td class="num">{{ (a.positive_ratio * 100) | round(0) | int }}%</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% else %}
+<p class="muted">No data yet — make sure the API is running on {{ request.host_url }}api/.</p>
+{% endif %}
+{% endblock %}

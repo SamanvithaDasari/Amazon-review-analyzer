@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Test Sentiment</h1>
+<p class="subtitle">
+  Try the sentiment model on any review text.
+  Choose between VADER (fast, 3-class) and DistilBERT-SST2 (slower, binary).
+</p>
+
+<form method="post" class="form">
+  <textarea
+    name="review_text"
+    rows="6"
+    placeholder="Paste or type a review here…"
+    required>{{ text }}</textarea>
+
+  <div class="row">
+    <label>
+      Model:
+      <select name="model">
+        <option value="vader" {% if model == "vader" %}selected{% endif %}>
+          VADER (fast)
+        </option>
+        <option value="hf" {% if model == "hf" %}selected{% endif %}>
+          DistilBERT-SST2 (slower, more nuanced)
+        </option>
+      </select>
+    </label>
+    <button type="submit">Analyze</button>
+  </div>
+</form>
+
+{% if result %}
+<div class="card result-card">
+  <h2 class="sentiment-{{ result.sentiment }}">{{ result.sentiment | upper }}</h2>
+  <p class="muted">
+    Model: <code>{{ result.model }}</code> ·
+    Compound score: <code>{{ '%.3f' % result.compound_score }}</code>
+  </p>
+  <div class="bars">
+    <div class="bar bar-pos" style="width: {{ (result.positive * 100) | round(0) }}%">
+      positive {{ '%.2f' % result.positive }}
+    </div>
+    <div class="bar bar-neg" style="width: {{ (result.negative * 100) | round(0) }}%">
+      negative {{ '%.2f' % result.negative }}
+    </div>
+    <div class="bar bar-neu" style="width: {{ (result.neutral * 100) | round(0) }}%">
+      neutral {{ '%.2f' % result.neutral }}
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Amazon Review Analyzer{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a href="/" class="brand">Amazon Review Analyzer</a>
+      <div class="nav-links">
+        <a href="/">Dashboard</a>
+        <a href="/test-sentiment">Test Sentiment</a>
+        <a href="/browse-reviews">Browse Reviews</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container">
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    iPhone 12 reviews from amazon.in · Built for ML Engineer assignment
+  </footer>
+</body>
+</html>

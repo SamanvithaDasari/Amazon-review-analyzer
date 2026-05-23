@@ -1,0 +1,132 @@
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  margin: 0;
+  background: #fafafa;
+  color: #1a1a1a;
+  line-height: 1.5;
+}
+
+/* Nav */
+.nav { background: #1a1a1a; color: #fff; padding: 0.75rem 0; }
+.nav-inner {
+  max-width: 1100px; margin: 0 auto; padding: 0 1rem;
+  display: flex; justify-content: space-between; align-items: center;
+  flex-wrap: wrap; gap: 0.5rem;
+}
+.brand { font-weight: 700; color: #fff; text-decoration: none; }
+.nav-links a {
+  color: #fff; margin-left: 1.2rem; text-decoration: none; opacity: 0.85;
+}
+.nav-links a:hover { opacity: 1; }
+
+/* Layout */
+.container { max-width: 1100px; margin: 2rem auto; padding: 0 1rem; }
+.subtitle { color: #666; }
+.muted { color: #888; }
+
+/* Cards */
+.card {
+  background: #fff; border: 1px solid #e5e5e5; border-radius: 8px;
+  padding: 1.25rem; margin-bottom: 1rem;
+}
+.grid { display: grid; gap: 1rem; margin-bottom: 1rem; }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+/* Lists */
+.bar-list { list-style: none; padding: 0; margin: 0; }
+.bar-list li {
+  display: flex; justify-content: space-between;
+  padding: 0.4rem 0; border-bottom: 1px solid #f0f0f0;
+}
+.big-number { font-size: 3rem; font-weight: 700; margin: 0; }
+
+/* Keyword chips */
+.kw { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.kw li {
+  padding: 0.3rem 0.7rem; border-radius: 999px; font-size: 0.85rem;
+  background: #eef3ff; color: #1a3a8a;
+}
+
+/* Sentiment labels */
+.lbl { font-weight: 600; }
+.lbl-positive { color: #1b5e20; }
+.lbl-negative { color: #b71c1c; }
+.lbl-neutral { color: #555; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
+.num { text-align: right; }
+.pos { color: #1b5e20; }
+.neg { color: #b71c1c; }
+
+/* Forms */
+.form, .filter-form {
+  display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;
+}
+.filter-form { flex-direction: row; flex-wrap: wrap; align-items: center; }
+textarea, select, input {
+  font-family: inherit; font-size: 1rem;
+  padding: 0.6rem; border: 1px solid #ddd; border-radius: 6px;
+  background: #fff;
+}
+textarea { width: 100%; }
+.row { display: flex; gap: 1rem; align-items: center; }
+button {
+  background: #1a1a1a; color: #fff; border: 0;
+  padding: 0.6rem 1.2rem; border-radius: 6px;
+  cursor: pointer; font-size: 1rem;
+}
+button:hover { background: #333; }
+
+/* Sentiment result */
+.result-card { margin-top: 1.5rem; }
+.sentiment-positive { color: #1b5e20; }
+.sentiment-negative { color: #b71c1c; }
+.sentiment-neutral { color: #555; }
+.bars { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 1rem; }
+.bar {
+  padding: 0.3rem 0.7rem; color: #fff; border-radius: 4px;
+  font-size: 0.85rem; min-width: 80px;
+}
+.bar-pos { background: #2e7d32; }
+.bar-neg { background: #c62828; }
+.bar-neu { background: #757575; }
+
+/* Reviews list */
+.reviews { display: flex; flex-direction: column; gap: 0.75rem; }
+.review {
+  background: #fff; border: 1px solid #e5e5e5; border-radius: 8px;
+  padding: 1rem;
+}
+.review-head {
+  display: flex; align-items: center; gap: 0.5rem;
+  flex-wrap: wrap; margin-bottom: 0.5rem;
+}
+.stars { color: #f5a623; }
+.tag {
+  background: #f0f0f0; padding: 0.15rem 0.55rem;
+  border-radius: 999px; font-size: 0.75rem;
+}
+.tag-verified { background: #e3f2fd; color: #1565c0; }
+.tag-positive { background: #e8f5e9; color: #1b5e20; }
+.tag-negative { background: #ffebee; color: #b71c1c; }
+.tag-neutral { background: #f5f5f5; color: #555; }
+.review-body { margin: 0.5rem 0; white-space: pre-wrap; }
+.review-date { margin-top: 0.5rem; font-size: 0.85rem; }
+
+/* Error */
+.error {
+  background: #ffebee; color: #b71c1c; padding: 0.75rem 1rem;
+  border-radius: 6px; margin-bottom: 1rem;
+}
+
+/* Footer */
+.footer { text-align: center; padding: 2rem; color: #888; font-size: 0.85rem; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .grid-3 { grid-template-columns: 1fr; }
+  .nav-links a { margin-left: 0.6rem; font-size: 0.9rem; }
+}
