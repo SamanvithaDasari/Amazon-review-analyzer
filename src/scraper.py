@@ -136,6 +136,17 @@ def _parse_rating(block) -> Optional[int]:
         return None
 
 
+def _make_soup(html: str) -> BeautifulSoup:
+    """
+    Construct BeautifulSoup with a parser that's available on this system.
+    Tries lxml first, falls back to html.parser (stdlib, always available).
+    """
+    try:
+        return BeautifulSoup(html, "lxml")
+    except Exception:
+        return BeautifulSoup(html, "html.parser")
+
+
 def parse_reviews(html: str) -> List[Dict]:
     """
     Extract all review dicts from a single page of HTML.
@@ -143,33 +154,46 @@ def parse_reviews(html: str) -> List[Dict]:
     Returns a list of dicts. Color and storage are intentionally NOT
     extracted — see module docstring for rationale.
 
-    Selectors updated 2026-05-23 to match amazon.in's current markup:
-    Amazon moved from kebab-case (`review-title`, `review-body`) to
-    camelCase (`reviewTitle`, `reviewRichContentContainer`) hooks.
+    Selectors handle BOTH markup variants amazon.in serves:
+      - Product detail page: <div data-hook="review"> with camelCase
+        inner hooks (reviewTitle, reviewRichContentContainer)
+      - Paginated /product-reviews/ endpoint: <li data-hook="review">
+        with kebab-case inner hooks (review-title, review-body)
     """
-    soup = BeautifulSoup(html, "lxml")
+    soup = _make_soup(html)
     reviews: List[Dict] = []
 
-    for block in soup.select('div[data-hook="review"]'):
+    # Match by attribute only — covers both <div> and <li> wrapper tags.
+    blocks = soup.find_all(attrs={"data-hook": "review"})
+
+    for block in blocks:
         try:
-            # Title: now lives inside h5[data-hook="reviewTitle"]
-            # We try the new (camelCase) hook first, then fall back to
-            # the legacy (kebab-case) one in case Amazon flips back.
-            title_el = (
-                block.select_one('h5[data-hook="reviewTitle"]')
-                or block.select_one('a[data-hook="review-title"] span:not([class])')
-                or block.select_one('span[data-hook="review-title"]')
-            )
+            # ----- Title -----
+            # New (camelCase) path on product detail pages
+            title_el = block.select_one('h5[data-hook="reviewTitle"]')
+            if not title_el:
+                # Legacy (kebab-case) path on paginated reviews page.
+                # The <a data-hook="review-title"> contains both the star-rating
+                # icon and the title text in separate spans — we want the LAST
+                # span which has the actual title.
+                title_link = block.select_one('a[data-hook="review-title"]')
+                if title_link:
+                    spans = title_link.find_all("span")
+                    title_el = spans[-1] if spans else None
+            if not title_el:
+                title_el = block.select_one('span[data-hook="review-title"]')
 
-            # Body: now under div[data-hook="reviewRichContentContainer"]
-            # The text is wrapped in <p><span>...</span></p> blocks.
-            body_el = (
-                block.select_one('div[data-hook="reviewRichContentContainer"]')
-                or block.select_one('span[data-hook="review-body"] span')
-                or block.select_one('span[data-hook="review-body"]')
+            # ----- Body -----
+            body_el = block.select_one(
+                'div[data-hook="reviewRichContentContainer"]'
             )
+            if not body_el:
+                body_outer = block.select_one('span[data-hook="review-body"]')
+                if body_outer:
+                    inner = body_outer.select_one("span")
+                    body_el = inner if inner else body_outer
 
-            # These three are unchanged in the current markup
+            # ----- These three are stable across markup variants -----
             verified_el = block.select_one('span[data-hook="avp-badge"]')
             date_el = block.select_one('span[data-hook="review-date"]')
 
@@ -192,6 +216,7 @@ def parse_reviews(html: str) -> List[Dict]:
             log.debug("skipping a review block: %s", e)
 
     return reviews
+
 
 # ---------------------------------------------------------------------------
 # Top-level loop

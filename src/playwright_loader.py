@@ -1,187 +1,290 @@
 """
-Playwright-based scraper for amazon.in reviews.
+Playwright loader: click-based "Show more" + filter variation.
 
-Logs into your amazon.in account using credentials from .env,
-navigates to the paginated reviews endpoint, and scrapes reviews
-through the existing parse_reviews() function.
+For each (sortBy × starFilter) combination, loads the reviews page
+and clicks "Show more reviews" until the button disappears, accumulating
+reviews. Dedupes across combos so the same review isn't counted twice.
 
-Pauses for manual OTP entry if Amazon challenges the login.
+Run:
+    python -m src.playwright_loader
 
 Output: data/playwright_reviews.json
-
-Run from project root:
-    python -m src.playwright_loader
 """
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Set, Tuple
 
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright, Page, TimeoutError as PWTimeout
 
-from .config import RAW_SCRAPED_JSON
 from .scraper import parse_reviews
 
 load_dotenv()
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
 ASIN = "B08L5TNJHG"
-PRODUCT_URL = f"https://www.amazon.in/dp/{ASIN}/"
-REVIEWS_URL_TEMPLATE = (
-    "https://www.amazon.in/product-reviews/{asin}/"
-    "?ie=UTF8&reviewerType=all_reviews&pageNumber={page}"
-)
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "playwright_reviews.json"
-
-MAX_PAGES = 10
 PAGE_TIMEOUT_MS = 60000
+MAX_CLICKS_PER_COMBO = 25
+
+# All filter combos to iterate
+FILTER_COMBOS: List[Dict] = []
+for sort in ["helpful", "recent"]:
+    for star in ["all_stars", "five_star", "four_star",
+                 "three_star", "two_star", "one_star"]:
+        FILTER_COMBOS.append({"sortBy": sort, "filterByStar": star})
+
+SHOW_MORE_SELECTORS = [
+    'a[data-hook="show-more-button"]',
+    'button[data-hook="show-more-button"]',
+    'a:has-text("Show more reviews")',
+    'button:has-text("Show more reviews")',
+    'a:has-text("See more reviews")',
+    'button:has-text("See more reviews")',
+]
+
+
+def build_url(asin: str, combo: Dict) -> str:
+    base = f"https://www.amazon.in/product-reviews/{asin}/"
+    parts = ["ie=UTF8", "reviewerType=all_reviews", f"sortBy={combo['sortBy']}"]
+    if combo["filterByStar"] != "all_stars":
+        parts.append(f"filterByStar={combo['filterByStar']}")
+    return f"{base}?{'&'.join(parts)}"
+
+
+def review_fingerprint(r: Dict) -> str:
+    return hashlib.sha256(
+        f"{r.get('review_title') or ''}|"
+        f"{(r.get('review_text') or '')[:200]}|"
+        f"{r.get('rating', 0)}".encode("utf-8")
+    ).hexdigest()
 
 
 async def amazon_login(page: Page, email: str, password: str) -> None:
-    """Log into amazon.in. Pauses for manual OTP entry if challenged."""
     log.info("navigating to amazon.in")
     await page.goto("https://www.amazon.in/", timeout=PAGE_TIMEOUT_MS)
-
-    # Click the account menu / sign-in
     log.info("opening sign-in")
     try:
         await page.click("#nav-link-accountList", timeout=10000)
     except PWTimeout:
-        log.warning("could not find #nav-link-accountList — trying alt selector")
         await page.click("a[data-nav-role='signin']", timeout=10000)
 
-    # Email step
     log.info("entering email")
     await page.wait_for_selector("#ap_email_login, #ap_email", timeout=PAGE_TIMEOUT_MS)
-    email_input = await page.query_selector("#ap_email_login") or await page.query_selector("#ap_email")
+    email_input = (await page.query_selector("#ap_email_login")
+                   or await page.query_selector("#ap_email"))
     await email_input.fill(email)
-    await page.click("#continue, input[type='submit'][aria-labelledby*='continue']", timeout=10000)
+    await page.click("#continue, input[type='submit'][aria-labelledby*='continue']",
+                     timeout=10000)
 
-    # Password step
     log.info("entering password")
     await page.wait_for_selector("#ap_password", timeout=PAGE_TIMEOUT_MS)
     await page.fill("#ap_password", password)
     await page.click("#signInSubmit", timeout=10000)
 
-    # Wait a moment to see what comes next
-    await page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
-
-    # Check for OTP challenge
-    page_content = await page.content()
-    if any(
-        keyword in page_content.lower()
-        for keyword in ["enter otp", "verification code", "one-time password", "two-step verification", "otp"]
-    ):
-        log.warning("OTP challenge detected — Amazon wants a one-time code")
-        otp = input("\n>>> Enter the OTP Amazon sent you: ").strip()
-        # Try common OTP input field selectors
-        for selector in ["#auth-mfa-otpcode", "input[name='otpCode']", "input[type='tel']", "input[type='text']"]:
-            try:
-                await page.fill(selector, otp, timeout=5000)
-                log.info("OTP filled in %s", selector)
-                break
-            except PWTimeout:
-                continue
-        # Submit
-        for selector in ["#auth-signin-button", "input[type='submit']", "button[type='submit']"]:
-            try:
-                await page.click(selector, timeout=5000)
-                log.info("OTP submit clicked")
-                break
-            except PWTimeout:
-                continue
-        await page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
-
-    # Verify we're logged in by checking for the account name
-    log.info("checking login state")
+    log.info("waiting for post-login signal")
     try:
-        await page.wait_for_selector("#nav-link-accountList-nav-line-1", timeout=10000)
-        account_text = await page.text_content("#nav-link-accountList-nav-line-1")
-        log.info("logged in as: %s", account_text.strip() if account_text else "unknown")
+        await page.wait_for_selector(
+            "#nav-link-accountList-nav-line-1, #auth-mfa-otpcode, input[name='otpCode']",
+            timeout=20000)
     except PWTimeout:
-        log.warning("could not confirm login by selector — proceeding anyway")
+        pass
+
+    content = await page.content()
+    if any(k in content.lower() for k in ["enter otp", "verification code",
+                                            "one-time password",
+                                            "two-step verification"]):
+        otp = input("\n>>> Enter the OTP Amazon sent you: ").strip()
+        for s in ["#auth-mfa-otpcode", "input[name='otpCode']",
+                  "input[type='tel']", "input[type='text']"]:
+            try:
+                await page.fill(s, otp, timeout=5000); break
+            except PWTimeout: continue
+        for s in ["#auth-signin-button", "input[type='submit']",
+                  "button[type='submit']"]:
+            try:
+                await page.click(s, timeout=5000); break
+            except PWTimeout: continue
+        try:
+            await page.wait_for_selector("#nav-link-accountList-nav-line-1",
+                                         timeout=20000)
+        except PWTimeout:
+            log.warning("could not confirm login after OTP")
+
+    try:
+        await page.wait_for_selector("#nav-link-accountList-nav-line-1",
+                                     timeout=10000)
+        name = await page.text_content("#nav-link-accountList-nav-line-1")
+        log.info("logged in as: %s", (name or "?").strip())
+    except PWTimeout:
+        log.warning("could not confirm login — proceeding")
 
 
-async def scrape_review_page(page: Page, page_num: int) -> List[Dict]:
-    """Navigate to a review page, return parsed reviews."""
-    url = REVIEWS_URL_TEMPLATE.format(asin=ASIN, page=page_num)
-    log.info("fetching page %d: %s", page_num, url)
-    await page.goto(url, timeout=PAGE_TIMEOUT_MS)
-    await page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
+async def find_show_more_button(page: Page):
+    """Return the first visible show-more button element, or None."""
+    for selector in SHOW_MORE_SELECTORS:
+        try:
+            el = await page.query_selector(selector)
+            if el and await el.is_visible():
+                return el, selector
+        except Exception:
+            continue
+    return None, None
+
+
+async def click_until_done(page: Page, combo_label: str) -> int:
+    """Click 'Show more' until exhausted. Return click count."""
+    clicks = 0
+    consecutive_failures = 0
+
+    for attempt in range(MAX_CLICKS_PER_COMBO):
+        cards = await page.query_selector_all('[data-hook="review"]')
+        log.info("  [%s] attempt %d: %d cards visible",
+                 combo_label, attempt + 1, len(cards))
+
+        try:
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(1500)
+        except Exception:
+            pass
+
+        button, selector_used = await find_show_more_button(page)
+        if not button:
+            log.info("  [%s] no show-more button — done", combo_label)
+            break
+
+        try:
+            await button.click(timeout=10000)
+            consecutive_failures = 0
+            clicks += 1
+        except Exception as e:
+            log.warning("  [%s] click failed: %s", combo_label, e)
+            consecutive_failures += 1
+            if consecutive_failures >= 3:
+                log.info("  [%s] 3 consecutive failures — stopping", combo_label)
+                break
+            continue
+
+        old_count = len(cards)
+        for _ in range(20):
+            await page.wait_for_timeout(500)
+            cards_now = await page.query_selector_all('[data-hook="review"]')
+            if len(cards_now) > old_count:
+                break
+        else:
+            log.info("  [%s] no new reviews after click — stopping", combo_label)
+            break
+
+        await page.wait_for_timeout(2000)
+
+    return clicks
+
+
+async def scrape_combo(page: Page, combo: Dict,
+                       seen: Set[str], all_reviews: List[Dict]) -> int:
+    """Load a combo URL, click show-more until done, parse, dedup, return count added."""
+    url = build_url(ASIN, combo)
+    combo_label = f"{combo['sortBy']}/{combo['filterByStar']}"
+    log.info("=== combo: %s ===", combo_label)
+    log.info("  GET %s", url)
+
+    try:
+        await page.goto(url, timeout=PAGE_TIMEOUT_MS)
+    except PWTimeout:
+        log.warning("  nav timeout — continuing")
+
+    try:
+        await page.wait_for_selector('[data-hook="review"]', timeout=15000)
+    except PWTimeout:
+        log.warning("  no reviews on initial load — skipping combo")
+        return 0
+
+    clicks = await click_until_done(page, combo_label)
+    log.info("  [%s] %d clicks done", combo_label, clicks)
+
+    # CAPTCHA check
     html = await page.content()
-
     if any(s in html.lower() for s in ["enter the characters", "captcha", "robot check"]):
-        log.error("CAPTCHA on page %d — stopping", page_num)
-        return []
+        log.error("  [%s] CAPTCHA — skipping", combo_label)
+        return 0
 
-    reviews = parse_reviews(html)
-    log.info("page %d: parsed %d reviews", page_num, len(reviews))
-    return reviews
+    page_reviews = parse_reviews(html)
+    new_count = 0
+    for r in page_reviews:
+        r["source"] = f"playwright_{combo['sortBy']}_{combo['filterByStar']}"
+        fp = review_fingerprint(r)
+        if fp in seen:
+            continue
+        seen.add(fp)
+        all_reviews.append(r)
+        new_count += 1
+    log.info("  [%s] parsed %d, new %d (overall total %d)",
+             combo_label, len(page_reviews), new_count, len(all_reviews))
+    return new_count
 
 
 async def main():
     email = os.environ.get("AMAZON_EMAIL")
     password = os.environ.get("AMAZON_PASSWORD")
     if not email or not password:
-        log.error("AMAZON_EMAIL and AMAZON_PASSWORD must be set in .env")
+        log.error("AMAZON_EMAIL and AMAZON_PASSWORD required in .env")
         sys.exit(1)
 
     all_reviews: List[Dict] = []
+    seen: Set[str] = set()
+
+    # Resume from existing
+    if OUTPUT_PATH.exists():
+        try:
+            for r in json.load(open(OUTPUT_PATH)):
+                fp = review_fingerprint(r)
+                if fp not in seen:
+                    seen.add(fp); all_reviews.append(r)
+            log.info("resumed from %d existing reviews", len(all_reviews))
+        except Exception as e:
+            log.warning("could not load existing: %s", e)
 
     async with async_playwright() as p:
-        # Use a real visible browser so you can see what's happening
-        # Set headless=True later once login flow is stable
-        browser = await p.chromium.launch(headless=True, slow_mo=200)
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
-            locale="en-IN",
-        )
-        page = await context.new_page()
+        browser = await p.chromium.launch(headless=False, slow_mo=150)
+        ctx = await browser.new_context(
+            user_agent=("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/120.0.0.0 Safari/537.36"),
+            locale="en-IN")
+        page = await ctx.new_page()
 
         try:
             await amazon_login(page, email, password)
         except Exception as e:
             log.error("login failed: %s", e)
-            try:
-                await page.screenshot(path="/tmp/amazon_login_error.png", full_page=True)
-                log.info("login error screenshot saved to /tmp/amazon_login_error.png")
-            except Exception:
-                pass
-            await browser.close()
-            sys.exit(1)
+            try: await page.screenshot(path="/tmp/amazon_login_error.png", full_page=True)
+            except Exception: pass
+            await browser.close(); sys.exit(1)
 
-        for page_num in range(1, MAX_PAGES + 1):
+        for combo_idx, combo in enumerate(FILTER_COMBOS, 1):
+            log.info(">>> combo %d/%d <<<", combo_idx, len(FILTER_COMBOS))
             try:
-                reviews = await scrape_review_page(page, page_num)
-                if not reviews:
-                    log.info("no reviews on page %d, stopping", page_num)
-                    break
-                # tag source
-                for r in reviews:
-                    r["source"] = "amazon_in_playwright"
-                all_reviews.extend(reviews)
-                # polite delay
-                await page.wait_for_timeout(3000)
+                added = await scrape_combo(page, combo, seen, all_reviews)
+                log.info(">>> combo %d done: %d new (overall %d) <<<",
+                         combo_idx, added, len(all_reviews))
             except Exception as e:
-                log.error("error on page %d: %s", page_num, e)
-                break
+                log.error("combo %d blew up: %s", combo_idx, e)
+
+            # Incremental save after every combo
+            OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+                json.dump(all_reviews, f, indent=2, ensure_ascii=False)
+            log.info("saved %d reviews to %s", len(all_reviews), OUTPUT_PATH)
 
         await browser.close()
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(all_reviews, f, indent=2, ensure_ascii=False)
-    log.info("saved %d reviews to %s", len(all_reviews), OUTPUT_PATH)
+    log.info("FINAL: %d unique reviews", len(all_reviews))
 
 
 if __name__ == "__main__":
