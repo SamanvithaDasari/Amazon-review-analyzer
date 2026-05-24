@@ -1,0 +1,194 @@
+headless=True
+"""
+Playwright-based scraper for amazon.in reviews.
+
+
+
+
+
+
+Logs into your amazon.in account using credentials from .env,
+navigates to the paginated reviews endpoint, and scrapes reviews
+through the existing parse_reviews() function.
+
+Pauses for manual OTP entry if Amazon challenges the login.
+
+Output: data/playwright_reviews.json
+
+Run from project root:
+    python -m src.playwright_loader
+"""
+import asyncio
+import json
+import logging
+import os
+import sys
+from pathlib import Path
+from typing import List, Dict
+
+from dotenv import load_dotenv
+from playwright.async_api import async_playwright, Page, TimeoutError as PWTimeout
+
+from .config import RAW_SCRAPED_JSON
+from .scraper import parse_reviews
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger(__name__)
+
+ASIN = "B08L5TNJHG"
+PRODUCT_URL = f"https://www.amazon.in/dp/{ASIN}/"
+REVIEWS_URL_TEMPLATE = (
+    "https://www.amazon.in/product-reviews/{asin}/"
+    "?ie=UTF8&reviewerType=all_reviews&pageNumber={page}"
+)
+OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "playwright_reviews.json"
+
+MAX_PAGES = 10
+PAGE_TIMEOUT_MS = 60000
+
+
+async def amazon_login(page: Page, email: str, password: str) -> None:
+    """Log into amazon.in. Pauses for manual OTP entry if challenged."""
+    log.info("navigating to amazon.in")
+    await page.goto("https://www.amazon.in/", timeout=PAGE_TIMEOUT_MS)
+
+    # Click the account menu / sign-in
+    log.info("opening sign-in")
+    try:
+        await page.click("#nav-link-accountList", timeout=10000)
+    except PWTimeout:
+        log.warning("could not find #nav-link-accountList — trying alt selector")
+        await page.click("a[data-nav-role='signin']", timeout=10000)
+
+    # Email step
+    log.info("entering email")
+    await page.wait_for_selector("#ap_email_login, #ap_email", timeout=PAGE_TIMEOUT_MS)
+    email_input = await page.query_selector("#ap_email_login") or await page.query_selector("#ap_email")
+    await email_input.fill(email)
+    await page.click("#continue, input[type='submit'][aria-labelledby*='continue']", timeout=10000)
+
+    # Password step
+    log.info("entering password")
+    await page.wait_for_selector("#ap_password", timeout=PAGE_TIMEOUT_MS)
+    await page.fill("#ap_password", password)
+    await page.click("#signInSubmit", timeout=10000)
+
+    # Wait a moment to see what comes next
+    await page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
+
+    # Check for OTP challenge
+    page_content = await page.content()
+    if any(
+        keyword in page_content.lower()
+        for keyword in ["enter otp", "verification code", "one-time password", "two-step verification", "otp"]
+    ):
+        log.warning("OTP challenge detected — Amazon wants a one-time code")
+        otp = input("\n>>> Enter the OTP Amazon sent you: ").strip()
+        # Try common OTP input field selectors
+        for selector in ["#auth-mfa-otpcode", "input[name='otpCode']", "input[type='tel']", "input[type='text']"]:
+            try:
+                await page.fill(selector, otp, timeout=5000)
+                log.info("OTP filled in %s", selector)
+                break
+            except PWTimeout:
+                continue
+        # Submit
+        for selector in ["#auth-signin-button", "input[type='submit']", "button[type='submit']"]:
+            try:
+                await page.click(selector, timeout=5000)
+                log.info("OTP submit clicked")
+                break
+            except PWTimeout:
+                continue
+        await page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
+
+    # Verify we're logged in by checking for the account name
+    log.info("checking login state")
+    try:
+        await page.wait_for_selector("#nav-link-accountList-nav-line-1", timeout=10000)
+        account_text = await page.text_content("#nav-link-accountList-nav-line-1")
+        log.info("logged in as: %s", account_text.strip() if account_text else "unknown")
+    except PWTimeout:
+        log.warning("could not confirm login by selector — proceeding anyway")
+
+
+async def scrape_review_page(page: Page, page_num: int) -> List[Dict]:
+    """Navigate to a review page, return parsed reviews."""
+    url = REVIEWS_URL_TEMPLATE.format(asin=ASIN, page=page_num)
+    log.info("fetching page %d: %s", page_num, url)
+    await page.goto(url, timeout=PAGE_TIMEOUT_MS)
+    await page.wait_for_load_state("networkidle", timeout=PAGE_TIMEOUT_MS)
+    html = await page.content()
+
+    if any(s in html.lower() for s in ["enter the characters", "captcha", "robot check"]):
+        log.error("CAPTCHA on page %d — stopping", page_num)
+        return []
+
+    reviews = parse_reviews(html)
+    log.info("page %d: parsed %d reviews", page_num, len(reviews))
+    return reviews
+
+
+async def main():
+    email = os.environ.get("AMAZON_EMAIL")
+    password = os.environ.get("AMAZON_PASSWORD")
+    if not email or not password:
+        log.error("AMAZON_EMAIL and AMAZON_PASSWORD must be set in .env")
+        sys.exit(1)
+
+    all_reviews: List[Dict] = []
+
+    async with async_playwright() as p:
+        # Use a real visible browser so you can see what's happening
+        # Set headless=True later once login flow is stable
+        browser = await p.chromium.launch(headless=True, slow_mo=200)
+        context = await browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            locale="en-IN",
+        )
+        page = await context.new_page()
+
+        try:
+            await amazon_login(page, email, password)
+        except Exception as e:
+            log.error("login failed: %s", e)
+            try:
+                await page.screenshot(path="/tmp/amazon_login_error.png", full_page=True)
+                log.info("login error screenshot saved to /tmp/amazon_login_error.png")
+            except Exception:
+                pass
+            await browser.close()
+            sys.exit(1)
+
+        for page_num in range(1, MAX_PAGES + 1):
+            try:
+                reviews = await scrape_review_page(page, page_num)
+                if not reviews:
+                    log.info("no reviews on page %d, stopping", page_num)
+                    break
+                # tag source
+                for r in reviews:
+                    r["source"] = "amazon_in_playwright"
+                all_reviews.extend(reviews)
+                # polite delay
+                await page.wait_for_timeout(3000)
+            except Exception as e:
+                log.error("error on page %d: %s", page_num, e)
+                break
+
+        await browser.close()
+
+    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(all_reviews, f, indent=2, ensure_ascii=False)
+    log.info("saved %d reviews to %s", len(all_reviews), OUTPUT_PATH)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
