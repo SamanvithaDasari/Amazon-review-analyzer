@@ -225,3 +225,4 @@ data/raw_scraped_DEBUG/
 # IMPORTANT: do NOT ignore data/reviews.db — we commit it for deployment
 debug_page.html
 debug_reviews_page.html
+data/reviews.db

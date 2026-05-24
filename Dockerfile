@@ -29,6 +29,8 @@ COPY src/ ./src/
 COPY templates/ ./templates/
 COPY static/ ./static/
 COPY data/ ./data/
+# Build the reviews.db from raw JSON sources and score with VADER
+RUN python -m src.parse_raw && python -m src.sentiment
 COPY docker-entrypoint.sh .
 
 RUN chmod +x docker-entrypoint.sh
