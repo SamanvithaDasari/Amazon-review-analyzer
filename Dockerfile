@@ -22,7 +22,6 @@ RUN python -m spacy download en_core_web_sm
 RUN python -c "import nltk; nltk.download('vader_lexicon'); nltk.download('stopwords'); nltk.download('punkt'); nltk.download('punkt_tab')"
 
 # Pre-download DistilBERT so first request isn't a 30s wait
-RUN python -c "from transformers import pipeline; pipeline('sentiment-analysis', model='distilbert-base-uncased-finetuned-sst-2-english')"
 
 # App code
 COPY src/ ./src/
