@@ -7,7 +7,7 @@ sdk: docker
 app_port: 7860
 pinned: false
 license: mit
-short_description: End-to-end NLP pipeline over 657 iPhone 12 reviews from amazon.in
+short_description: NLP pipeline over 657 iPhone 12 reviews from amazon.in
 ---
 
 # Amazon Review Analyzer
