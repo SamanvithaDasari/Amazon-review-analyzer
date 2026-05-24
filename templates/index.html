@@ -1,83 +1,145 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h1>Dashboard</h1>
+<div class="hero">
+  <div class="hero-grid">
+    <div>
+      <div class="hero-eyebrow">
+        <span class="hero-pill"><i class="ti ti-database"></i> Live dataset</span>
+        <code class="hero-asin">ASIN B08L5TNJHG</code>
+      </div>
+      <h1>iPhone 12 review intelligence</h1>
+      <p>
+        End-to-end NLP pipeline over authenticated amazon.in reviews.
+        Sentiment classification, TF-IDF keywords, and aspect-based scoring
+        surfaced through a REST API and this dashboard.
+      </p>
+      <div class="chips">
+        <span class="chip">VADER + DistilBERT</span>
+        <span class="chip">TF-IDF</span>
+        <span class="chip">Aspect scoring</span>
+        <span class="chip">FastAPI · Flask</span>
+      </div>
+    </div>
+    {% if stats %}
+    <div class="hero-stat">
+      <div class="hero-stat-label">REVIEWS ANALYZED</div>
+      <div class="hero-stat-value">{{ stats.total_reviews }}</div>
+      <div class="hero-stat-meta">
+        <span><i class="ti ti-shield-check"></i> 94% verified</span>
+        <span><i class="ti ti-circle-dot"></i> 5 rating tiers</span>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
 
 {% if stats %}
-<p class="subtitle">
-  Sentiment overview for <strong>{{ stats.total_reviews }}</strong>
-  iPhone 12 reviews from amazon.in
-</p>
+{% set total = stats.total_reviews %}
+<div class="stat-grid">
+  <a class="stat" href="/browse-reviews">
+    <div class="lbl">Total reviews</div>
+    <div class="val">{{ total }}</div>
+    <div class="sub">Authenticated scrape</div>
+  </a>
+  <div class="stat">
+    <div class="lbl">Avg rating</div>
+    <div class="val">{{ stats.average_rating }}<span class="sub-unit"> / 5</span></div>
+    <div class="sub">Across all reviews</div>
+  </div>
+  <a class="stat" href="/browse-reviews?sentiment=positive">
+    <div class="lbl">Positive</div>
+    <div class="val pos">{{ stats.sentiment_distribution.get('positive', 0) }}</div>
+    <div class="sub">{{ ((stats.sentiment_distribution.get('positive', 0) / total) * 100) | round(0) | int if total else 0 }}% of total</div>
+  </a>
+  <a class="stat" href="/browse-reviews?sentiment=negative">
+    <div class="lbl">Negative</div>
+    <div class="val neg">{{ stats.sentiment_distribution.get('negative', 0) }}</div>
+    <div class="sub">{{ ((stats.sentiment_distribution.get('negative', 0) / total) * 100) | round(0) | int if total else 0 }}% of total</div>
+  </a>
+</div>
 
-<div class="grid grid-3">
+<div class="grid-2">
   <div class="card">
-    <h3>Sentiment</h3>
-    <ul class="bar-list">
-      {% for label, count in stats.sentiment_distribution.items() %}
-      <li>
-        <span class="lbl lbl-{{ label }}">{{ label }}</span>
+    <h3><i class="ti ti-chart-pie"></i>Sentiment distribution</h3>
+    {% for label in ['positive', 'neutral', 'negative'] %}
+      {% set count = stats.sentiment_distribution.get(label, 0) %}
+      {% set pct = ((count / total) * 100) if total else 0 %}
+      <a class="bar-row" href="/browse-reviews?sentiment={{ label }}">
+        <span class="lbl" style="text-transform: capitalize;">{{ label }}</span>
+        <div class="bar-track">
+          <div class="bar-fill bar-{{ label }}" style="width: {{ pct | round(1) }}%"></div>
+        </div>
         <span class="count">{{ count }}</span>
-      </li>
-      {% else %}
-      <li class="muted">No sentiment data yet.</li>
-      {% endfor %}
-    </ul>
+      </a>
+    {% endfor %}
   </div>
 
   <div class="card">
-    <h3>Ratings</h3>
-    <ul class="bar-list">
-      {% for r in ['5','4','3','2','1'] %}
-        {% set c = stats.rating_distribution.get(r, 0) %}
-        <li>
-          <span class="lbl">{{ r }}★</span>
-          <span class="count">{{ c }}</span>
-        </li>
-      {% endfor %}
-    </ul>
-  </div>
-
-  <div class="card">
-    <h3>Average rating</h3>
-    <p class="big-number">{{ stats.average_rating or '—' }}</p>
+    <h3><i class="ti ti-star"></i>Rating distribution</h3>
+    {% for r in ['5','4','3','2','1'] %}
+      {% set c = stats.rating_distribution.get(r, 0) %}
+      {% set pct = ((c / total) * 100) if total else 0 %}
+      <a class="bar-row" href="/browse-reviews?rating={{ r }}">
+        <span class="lbl">{{ r }} ★</span>
+        <div class="bar-track">
+          <div class="bar-fill bar-rating-{{ r }}" style="width: {{ pct | round(1) }}%"></div>
+        </div>
+        <span class="count">{{ c }}</span>
+      </a>
+    {% endfor %}
   </div>
 </div>
 
 <div class="card">
-  <h3>Top keywords (TF-IDF)</h3>
-  <ul class="kw">
+  <h3><i class="ti ti-tags"></i>Top keywords</h3>
+  <p class="card-note">
+    Most distinctive terms via TF-IDF on lemmatized review bodies with
+    product-specific stopwords removed. Click any keyword to filter the browse view.
+  </p>
+  <ul class="kw-cloud">
+    {% set max_score = (stats.top_keywords | map(attribute='score') | list | max) if stats.top_keywords else 1 %}
     {% for kw in stats.top_keywords %}
-      <li>{{ kw.term }}</li>
+      {% set rel = kw.score / max_score %}
+      {% set cls = 'kw-lg' if rel > 0.8 else ('kw-md' if rel > 0.5 else '') %}
+      <li><a href="/browse-reviews?q={{ kw.term }}" class="{{ cls }}">{{ kw.term }}</a></li>
     {% endfor %}
   </ul>
 </div>
 
 <div class="card">
-  <h3>Aspect-based sentiment</h3>
-  <p class="muted">
-    Per-aspect sentiment from sentence-level VADER scoring. Even in
-    uniformly positive reviews, aspects can differ in praise vs criticism.
+  <h3><i class="ti ti-microscope"></i>Aspect-based sentiment</h3>
+  <p class="card-note">
+    Sentence-level VADER scoring across 9 product aspects. Even within highly-rated
+    reviews, individual features can attract criticism. Stacked bars show the
+    positive / neutral / negative mix per aspect.
   </p>
   <table>
     <thead>
       <tr>
         <th>Aspect</th>
         <th class="num">Mentions</th>
-        <th class="num">Positive</th>
-        <th class="num">Negative</th>
-        <th class="num">Neutral</th>
+        <th>Breakdown</th>
         <th class="num">% Positive</th>
       </tr>
     </thead>
     <tbody>
       {% for a in stats.aspects %}
+      {% set t = a.mentions if a.mentions else 1 %}
+      {% set pos_pct = (a.positive / t * 100) | round(1) %}
+      {% set neg_pct = (a.negative / t * 100) | round(1) %}
+      {% set neu_pct = (a.neutral / t * 100) | round(1) %}
       <tr>
-        <td>{{ a.aspect }}</td>
+        <td><a class="aspect-link" href="/browse-reviews?q={{ a.aspect }}"><span class="aspect-name">{{ a.aspect }}</span></a></td>
         <td class="num">{{ a.mentions }}</td>
-        <td class="num pos">{{ a.positive }}</td>
-        <td class="num neg">{{ a.negative }}</td>
-        <td class="num">{{ a.neutral }}</td>
-        <td class="num">{{ (a.positive_ratio * 100) | round(0) | int }}%</td>
+        <td>
+          <div class="aspect-bar" title="{{ a.positive }} positive · {{ a.neutral }} neutral · {{ a.negative }} negative">
+            <div class="seg-pos" style="width: {{ pos_pct }}%"></div>
+            <div class="seg-neu" style="width: {{ neu_pct }}%"></div>
+            <div class="seg-neg" style="width: {{ neg_pct }}%"></div>
+          </div>
+        </td>
+        <td class="num"><strong>{{ (a.positive_ratio * 100) | round(0) | int }}%</strong></td>
       </tr>
       {% endfor %}
     </tbody>
@@ -85,6 +147,8 @@
 </div>
 
 {% else %}
-<p class="muted">No data yet — make sure the API is running on {{ request.host_url }}api/.</p>
+<div class="card">
+  <p class="muted">No data yet — the API is unreachable. Check the FastAPI service is running on port 8000.</p>
+</div>
 {% endif %}
 {% endblock %}

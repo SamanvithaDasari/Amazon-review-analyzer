@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="hero">
+  <h1>API documentation</h1>
+  <p>RESTful endpoints for sentiment analysis, review querying, and aggregate statistics. Backed by FastAPI with an auto-generated OpenAPI spec — also explorable through <a href="/docs" target="_blank">Swagger UI</a>.</p>
+  <div class="chips">
+    <span class="chip">FastAPI</span>
+    <span class="chip">JSON</span>
+    <span class="chip">Pydantic validation</span>
+    <span class="chip">OpenAPI 3.1</span>
+  </div>
+</div>
+
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="method method-get">GET</span>
+    <span class="endpoint-path">/api/health</span>
+    <span class="endpoint-desc">Liveness probe</span>
+  </div>
+  <div class="endpoint-body">
+    <p class="muted">Returns service health. No parameters.</p>
+<pre><span class="tok-comment"># Response</span>
+{ <span class="tok-key">"status"</span>: <span class="tok-string">"ok"</span> }</pre>
+  </div>
+</div>
+
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="method method-post">POST</span>
+    <span class="endpoint-path">/api/sentiment</span>
+    <span class="endpoint-desc">Classify free-text review</span>
+  </div>
+  <div class="endpoint-body">
+    <p>Run sentiment analysis on arbitrary text. Returns label, compound score, and probability distribution. Two models supported: lexicon-based VADER (default, fast) and DistilBERT-SST2 (transformer, slower).</p>
+<pre><span class="tok-comment"># Request</span>
+{
+  <span class="tok-key">"review_text"</span>: <span class="tok-string">"Camera is amazing but battery dies fast."</span>,
+  <span class="tok-key">"model"</span>: <span class="tok-string">"vader"</span>  <span class="tok-comment">// or "hf"</span>
+}
+
+<span class="tok-comment"># Response</span>
+{
+  <span class="tok-key">"sentiment"</span>: <span class="tok-string">"positive"</span>,
+  <span class="tok-key">"compound_score"</span>: 0.625,
+  <span class="tok-key">"positive"</span>: 0.412,
+  <span class="tok-key">"negative"</span>: 0.187,
+  <span class="tok-key">"neutral"</span>: 0.401,
+  <span class="tok-key">"model"</span>: <span class="tok-string">"vader"</span>
+}
+
+<span class="tok-comment"># Try it</span>
+curl -X POST http://localhost:8000/api/sentiment \
+  -H "Content-Type: application/json" \
+  -d '{"review_text": "Phone is great"}'</pre>
+  </div>
+</div>
+
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="method method-get">GET</span>
+    <span class="endpoint-path">/api/reviews</span>
+    <span class="endpoint-desc">Query the corpus</span>
+  </div>
+  <div class="endpoint-body">
+    <p>Paginated review listing with optional filters.</p>
+    <p><strong>Query parameters:</strong></p>
+    <ul class="params-list">
+      <li><code>rating</code> — integer 1–5</li>
+      <li><code>color</code> — string (NULL for this product; see Browse page)</li>
+      <li><code>storage</code> — string (NULL for this product)</li>
+      <li><code>limit</code> — integer, default 20</li>
+      <li><code>offset</code> — integer, default 0</li>
+    </ul>
+<pre><span class="tok-comment"># Example</span>
+curl "http://localhost:8000/api/reviews?rating=5&limit=3"
+
+<span class="tok-comment"># Response</span>
+{
+  <span class="tok-key">"total"</span>: 163,
+  <span class="tok-key">"limit"</span>: 3,
+  <span class="tok-key">"offset"</span>: 0,
+  <span class="tok-key">"reviews"</span>: [ ... ]
+}</pre>
+  </div>
+</div>
+
+<div class="endpoint">
+  <div class="endpoint-header">
+    <span class="method method-get">GET</span>
+    <span class="endpoint-path">/api/stats</span>
+    <span class="endpoint-desc">Aggregated insights</span>
+  </div>
+  <div class="endpoint-body">
+    <p>The full analytics payload powering the dashboard. Returns sentiment & rating distributions, top TF-IDF keywords, and aspect-based sentiment across 9 product features (camera, battery, display, performance, build, price, heat, delivery, ecosystem).</p>
+<pre><span class="tok-comment"># Response shape</span>
+{
+  <span class="tok-key">"total_reviews"</span>: 652,
+  <span class="tok-key">"average_rating"</span>: 3.55,
+  <span class="tok-key">"sentiment_distribution"</span>: { <span class="tok-key">"positive"</span>: 412, <span class="tok-key">"negative"</span>: 168, ... },
+  <span class="tok-key">"rating_distribution"</span>: { <span class="tok-string">"5"</span>: 163, <span class="tok-string">"4"</span>: 159, ... },
+  <span class="tok-key">"top_keywords"</span>: [ { <span class="tok-key">"term"</span>: <span class="tok-string">"camera"</span>, <span class="tok-key">"score"</span>: 0.0823 }, ... ],
+  <span class="tok-key">"aspects"</span>: [
+    { <span class="tok-key">"aspect"</span>: <span class="tok-string">"camera"</span>, <span class="tok-key">"mentions"</span>: 187, <span class="tok-key">"positive"</span>: 132, ... }
+  ]
+}</pre>
+  </div>
+</div>
+
+<div class="card">
+  <h3><i class="ti ti-stack-2"></i>How it's built</h3>
+  <p class="card-note" style="margin-top: 0;">
+    Two-layer architecture: <strong>FastAPI</strong> on an internal port handles sentiment scoring and DB queries with Pydantic-validated request/response models; <strong>Flask</strong> serves the human-facing UI plus proxy routes to the API. SQLite stores normalized reviews; sentiment is computed at ingestion time. Aspect analysis uses sentence-level VADER scoring across a hand-curated lexicon for 9 product features. Reviews scraped via Playwright with cookie-based authentication after multiple data-acquisition paths (anonymous scraping, DataForSEO, Unwrangle) were evaluated.
+  </p>
+</div>
+{% endblock %}

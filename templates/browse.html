@@ -1,52 +1,160 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h1>Browse Reviews</h1>
+<div class="hero">
+  <h1>Browse reviews</h1>
+  <p>Filter the corpus by rating, sentiment, or purchase verification. Each card shows the model-assigned label alongside the original text.</p>
+</div>
 
-<form method="get" class="filter-form">
-  <input
-    name="color"
-    placeholder="Color (currently NULL in all rows)"
-    value="{{ filters.get('color', '') }}">
-  <input
-    name="storage"
-    placeholder="Storage (currently NULL in all rows)"
-    value="{{ filters.get('storage', '') }}">
-  <select name="rating">
-    <option value="">Any rating</option>
-    {% for r in ['5','4','3','2','1'] %}
-      <option value="{{ r }}" {% if filters.get('rating') == r %}selected{% endif %}>
-        {{ r }}★
-      </option>
-    {% endfor %}
-  </select>
-  <button type="submit">Filter</button>
-</form>
+<div class="info-box">
+  <i class="ti ti-info-circle"></i>
+  <div>
+    <strong>Color and storage filters not available.</strong>
+    amazon.in aggregates reviews across all variants under one parent ASIN, so per-review color/storage isn't exposed in the HTML.
+  </div>
+</div>
 
-<p class="muted">
-  {{ data.total }} matching review{{ '' if data.total == 1 else 's' }} ·
-  showing {{ data.reviews|length }}
-</p>
+<div class="card">
+<div class="filter-block">
+    <div class="filter-label">Search</div>
+    <form method="get" class="search-row" action="/browse-reviews">
+      {# preserve other filters when searching #}
+      {% if filters.get('rating') %}<input type="hidden" name="rating" value="{{ filters.get('rating') }}">{% endif %}
+      {% if filters.get('sentiment') %}<input type="hidden" name="sentiment" value="{{ filters.get('sentiment') }}">{% endif %}
+      {% if filters.get('verified') %}<input type="hidden" name="verified" value="{{ filters.get('verified') }}">{% endif %}
+      <div class="search-input-wrap">
+        <i class="ti ti-search search-icon"></i>
+        <input
+          type="search"
+          name="q"
+          class="search-input"
+          placeholder="Search reviews (e.g. battery, camera, charger)"
+          value="{{ filters.get('q', '') }}"
+          autocomplete="off">
+        {% if filters.get('q') %}
+        <a href="{{ filter_url(q=None) }}" class="search-clear" title="Clear search"><i class="ti ti-x"></i></a>
+        {% endif %}
+      </div>
+      <button type="submit" class="search-btn"><i class="ti ti-arrow-right"></i></button>
+    </form>
+    {% if popular_keywords %}
+    <div class="search-suggestions">
+      <span class="search-suggestions-label">Popular:</span>
+      {% for kw in popular_keywords %}
+        <a href="{{ filter_url(q=kw) }}" class="kw-suggest {% if filters.get('q') == kw %}active{% endif %}">{{ kw }}</a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  <div class="filter-block">
+
+    <div class="filter-label">Rating</div>
+    <div class="pills">
+      <a class="pill {% if not filters.get('rating') %}active{% endif %}" href="{{ filter_url(rating=None) }}">All</a>
+      {% for r in ['5','4','3','2','1'] %}
+        <a class="pill {% if filters.get('rating') == r %}active{% endif %}" href="{{ filter_url(rating=r) }}">{{ r }} ★</a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="filter-block">
+    <div class="filter-label">Sentiment</div>
+    <div class="pills">
+      <a class="pill {% if not filters.get('sentiment') %}active{% endif %}" href="{{ filter_url(sentiment=None) }}">All</a>
+      <a class="pill pos {% if filters.get('sentiment') == 'positive' %}active{% endif %}" href="{{ filter_url(sentiment='positive') }}"><i class="ti ti-mood-smile"></i>Positive</a>
+      <a class="pill neu {% if filters.get('sentiment') == 'neutral' %}active{% endif %}" href="{{ filter_url(sentiment='neutral') }}"><i class="ti ti-minus"></i>Neutral</a>
+      <a class="pill neg {% if filters.get('sentiment') == 'negative' %}active{% endif %}" href="{{ filter_url(sentiment='negative') }}"><i class="ti ti-mood-sad"></i>Negative</a>
+    </div>
+  </div>
+
+  <div class="filter-block">
+    <div class="filter-label">Purchase</div>
+    <div class="pills">
+      <a class="pill {% if not filters.get('verified') %}active{% endif %}" href="{{ filter_url(verified=None) }}">Any</a>
+      <a class="pill {% if filters.get('verified') == 'true' %}active{% endif %}" href="{{ filter_url(verified='true') }}"><i class="ti ti-shield-check"></i>Verified only</a>
+      <a class="pill {% if filters.get('verified') == 'false' %}active{% endif %}" href="{{ filter_url(verified='false') }}">Unverified</a>
+    </div>
+  </div>
+  <div class="filter-block">
+    <div class="filter-label">Search keywords</div>
+    <form method="get" class="search-row" action="/browse-reviews" id="search-form">
+      {% if filters.get('rating') %}<input type="hidden" name="rating" value="{{ filters.get('rating') }}">{% endif %}
+      {% if filters.get('sentiment') %}<input type="hidden" name="sentiment" value="{{ filters.get('sentiment') }}">{% endif %}
+      {% if filters.get('verified') %}<input type="hidden" name="verified" value="{{ filters.get('verified') }}">{% endif %}
+      {% set q_list = filters.getlist('q') if filters else [] %}
+      {% for qval in q_list %}
+        <input type="hidden" name="q" value="{{ qval }}">
+      {% endfor %}
+      <div class="search-input-wrap">
+        <i class="ti ti-search search-icon"></i>
+        <input
+          type="text"
+          name="q"
+          class="search-input"
+          placeholder="Type a keyword and press Enter (e.g. battery)"
+          autocomplete="off">
+      </div>
+      <button type="submit" class="search-btn"><i class="ti ti-plus"></i></button>
+    </form>
+
+    {% if q_list %}
+    <div class="active-keywords">
+      <span class="search-suggestions-label">Active:</span>
+      {% for qval in q_list %}
+        {% set remaining = q_list | reject('equalto', qval) | list %}
+        <a href="{{ filter_url(q=remaining) }}" class="kw-active">
+          {{ qval }}<i class="ti ti-x"></i>
+        </a>
+      {% endfor %}
+      {% if q_list | length > 1 %}
+        <a href="{{ filter_url(q=None) }}" class="kw-clear-all">Clear all</a>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if popular_keywords %}
+    <div class="search-suggestions">
+      <span class="search-suggestions-label">Popular:</span>
+      {% for kw in popular_keywords %}
+        {% if kw not in q_list %}
+          {% set new_q = (q_list + [kw]) %}
+          <a href="{{ filter_url(q=new_q) }}" class="kw-suggest">+ {{ kw }}</a>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if filters.get('q') %}
+  <div class="filter-block">
+    <div class="filter-label">Keyword</div>
+    <div class="pills">
+      <a class="pill active" href="{{ filter_url(q=None) }}">"{{ filters.get('q') }}" <i class="ti ti-x" style="margin-left: 4px;"></i></a>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<div class="meta-line">Showing {{ data.reviews|length }} of {{ data.total }} matching review{{ '' if data.total == 1 else 's' }}</div>
 
 <div class="reviews">
   {% for r in data.reviews %}
   <div class="review">
     <div class="review-head">
       <span class="stars">{{ '★' * r.rating }}{{ '☆' * (5 - r.rating) }}</span>
-      <strong>{{ r.review_title or '(no title)' }}</strong>
-      <span class="meta">
-        {% if r.verified_purchase %}<span class="tag tag-verified">Verified</span>{% endif %}
+      <span class="review-title">{{ r.review_title or '(no title)' }}</span>
+      <div class="review-tags">
+        {% if r.verified_purchase %}<span class="tag tag-verified">verified</span>{% endif %}
         {% if r.sentiment_label %}<span class="tag tag-{{ r.sentiment_label }}">{{ r.sentiment_label }}</span>{% endif %}
-        {% if r.source %}<span class="tag">{{ r.source }}</span>{% endif %}
-      </span>
+      </div>
     </div>
     <p class="review-body">{{ r.review_text }}</p>
-    {% if r.review_date %}
-    <p class="review-date muted">{{ r.review_date }}</p>
-    {% endif %}
+    {% if r.review_date %}<div class="review-date">{{ r.review_date }}</div>{% endif %}
   </div>
   {% else %}
-  <p class="muted">No reviews match these filters.</p>
+  <div class="card">
+    <p class="muted">No reviews match these filters.</p>
+  </div>
   {% endfor %}
 </div>
 {% endblock %}

@@ -1,53 +1,106 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h1>Test Sentiment</h1>
-<p class="subtitle">
-  Try the sentiment model on any review text.
-  Choose between VADER (fast, 3-class) and DistilBERT-SST2 (slower, binary).
-</p>
+<div class="hero">
+  <h1>Test sentiment</h1>
+  <p>Run any text through the same models powering the dashboard. Choose between a fast lexicon-based classifier or a deep-learning baseline.</p>
+</div>
 
-<form method="post" class="form">
-  <textarea
-    name="review_text"
-    rows="6"
-    placeholder="Paste or type a review here…"
-    required>{{ text }}</textarea>
+<div class="card">
+  <form method="post" class="form-row">
+    <div>
+      <label class="filter-label" style="display: block; margin-bottom: 0.4rem;">Review text</label>
+      <textarea
+        name="review_text"
+        placeholder="Type or paste a review — e.g. 'The camera is incredible but battery dies fast.'"
+        required>{{ text }}</textarea>
+    </div>
 
-  <div class="row">
-    <label>
-      Model:
-      <select name="model">
-        <option value="vader" {% if model == "vader" %}selected{% endif %}>
-          VADER (fast)
-        </option>
-        <option value="hf" {% if model == "hf" %}selected{% endif %}>
-          DistilBERT-SST2 (slower, more nuanced)
-        </option>
-      </select>
-    </label>
-    <button type="submit">Analyze</button>
-  </div>
-</form>
+    <div>
+      <label class="filter-label" style="display: block; margin-bottom: 0.4rem;">Model</label>
+      <div class="model-picker">
+        <label class="model-opt {% if model == 'vader' %}active{% endif %}">
+          <input type="radio" name="model" value="vader" {% if model == 'vader' or not model %}checked{% endif %}>
+          <div class="name"><i class="ti ti-bolt"></i>VADER</div>
+          <div class="desc">Lexicon-based · ~3ms per review · 3-class</div>
+        </label>
+        <label class="model-opt {% if model == 'hf' %}active{% endif %}">
+          <input type="radio" name="model" value="hf" {% if model == 'hf' %}checked{% endif %}>
+          <div class="name"><i class="ti ti-brain"></i>DistilBERT</div>
+          <div class="desc">Transformer · ~80ms · binary (pos/neg)</div>
+        </label>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button type="submit"><i class="ti ti-player-play"></i>Analyze</button>
+    </div>
+  </form>
+</div>
 
 {% if result %}
-<div class="card result-card">
-  <h2 class="sentiment-{{ result.sentiment }}">{{ result.sentiment | upper }}</h2>
-  <p class="muted">
-    Model: <code>{{ result.model }}</code> ·
-    Compound score: <code>{{ '%.3f' % result.compound_score }}</code>
-  </p>
+<div class="card">
+  <h3 style="margin-bottom: 0.5rem;"><i class="ti ti-flag-check"></i>Result</h3>
+  <div class="result-h sentiment-{{ result.sentiment }}">{{ result.sentiment }}</div>
+  <div class="result-meta">
+    Model <code>{{ result.model }}</code> ·
+    Compound score <code>{{ '%.3f' % result.compound_score }}</code>
+    {% if result.model == 'hf' %} · <span class="muted">binary classifier — neutral not modeled</span>{% endif %}
+
+  </div>
   <div class="bars">
-    <div class="bar bar-pos" style="width: {{ (result.positive * 100) | round(0) }}%">
-      positive {{ '%.2f' % result.positive }}
+    <div class="bar-row">
+      <span class="lbl">Positive</span>
+      <div class="bar-track"><div class="bar-fill bar-positive" style="width: {{ (result.positive * 100) | round(0) }}%"></div></div>
+      <span class="count">{{ '%.2f' % result.positive }}</span>
     </div>
-    <div class="bar bar-neg" style="width: {{ (result.negative * 100) | round(0) }}%">
-      negative {{ '%.2f' % result.negative }}
+    <div class="bar-row">
+      <span class="lbl">Negative</span>
+      <div class="bar-track"><div class="bar-fill bar-negative" style="width: {{ (result.negative * 100) | round(0) }}%"></div></div>
+      <span class="count">{{ '%.2f' % result.negative }}</span>
     </div>
-    <div class="bar bar-neu" style="width: {{ (result.neutral * 100) | round(0) }}%">
-      neutral {{ '%.2f' % result.neutral }}
+    {% if result.neutral > 0.001 and result.model != 'hf' and result.model != 'distilbert' %}
+    <div class="bar-row">
+      <span class="lbl">Neutral</span>
+      <div class="bar-track"><div class="bar-fill bar-neutral" style="width: {{ (result.neutral * 100) | round(0) }}%"></div></div>
+      <span class="count">{{ '%.2f' % result.neutral }}</span>
     </div>
+    {% endif %}
   </div>
 </div>
 {% endif %}
+
+<script>
+  // Make model-opt cards reflect radio state + pre-warm API on model select
+  let warmedModels = new Set();
+
+  document.querySelectorAll('.model-opt input').forEach(input => {
+    input.addEventListener('change', () => {
+      document.querySelectorAll('.model-opt').forEach(o => o.classList.remove('active'));
+      input.closest('.model-opt').classList.add('active');
+
+      const model = input.value;
+      if (warmedModels.has(model)) return;
+      warmedModels.add(model);
+
+      // Pre-warm the model with a tiny dummy request — fires & forgets
+      fetch('/api/sentiment', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({review_text: 'ok', model: model})
+      }).catch(() => {});
+    });
+  });
+
+  // Also warm the default-selected model on page load
+  const checked = document.querySelector('.model-opt input:checked');
+  if (checked) {
+    warmedModels.add(checked.value);
+    fetch('/api/sentiment', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({review_text: 'ok', model: checked.value})
+    }).catch(() => {});
+  }
+</script>
 {% endblock %}

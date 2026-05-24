@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import Dict, List
 
 from .config import RAW_SCRAPED_JSON, RAW_MANUAL_CSV
+from pathlib import Path
+
+# Playwright-scraped reviews (authenticated, large dataset)
+PLAYWRIGHT_REVIEWS_JSON = Path(__file__).resolve().parent.parent / "data" / "playwright_reviews.json"
 from .database import init_db, get_conn, insert_review
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -54,7 +58,15 @@ def load_scraped() -> List[Dict]:
     with open(RAW_SCRAPED_JSON, encoding="utf-8") as f:
         return json.load(f)
 
-
+def load_playwright() -> List[Dict]:
+    """Load Playwright-scraped reviews if present."""
+    if not Path(PLAYWRIGHT_REVIEWS_JSON).exists():
+        log.info("no playwright JSON at %s (skipping)", PLAYWRIGHT_REVIEWS_JSON)
+        return []
+    with open(PLAYWRIGHT_REVIEWS_JSON, encoding="utf-8") as f:
+        rows = json.load(f)
+    log.info("loaded %d rows from playwright JSON", len(rows))
+    return rows
 def load_manual() -> List[Dict]:
     """Load optional manual CSV; returns empty if absent."""
     if not Path(RAW_MANUAL_CSV).exists():
@@ -111,7 +123,7 @@ def main():
     log.info("initializing database schema")
     init_db()
 
-    raw = load_scraped() + load_manual()
+    raw = load_scraped() + load_playwright() + load_manual()
     log.info("total raw rows loaded: %d", len(raw))
 
     cleaned = [c for c in (clean_review(r) for r in raw) if c is not None]

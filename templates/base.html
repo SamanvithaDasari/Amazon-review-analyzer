@@ -4,16 +4,42 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Amazon Review Analyzer{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.17.0/dist/tabler-icons.min.css" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script>
+    // Apply saved theme before paint to prevent flash
+    (function() {
+      const saved = localStorage.getItem('theme') || 'light';
+      document.documentElement.setAttribute('data-theme', saved);
+    })();
+  </script>
 </head>
 <body>
   <nav class="nav">
     <div class="nav-inner">
-      <a href="/" class="brand">Amazon Review Analyzer</a>
-      <div class="nav-links">
-        <a href="/">Dashboard</a>
-        <a href="/test-sentiment">Test Sentiment</a>
-        <a href="/browse-reviews">Browse Reviews</a>
+      <a href="/" class="brand">
+        <span class="brand-icon"><i class="ti ti-chart-dots-3"></i></span>
+        <span class="brand-text">
+          <span class="brand-name">Review Analyzer</span>
+          <span class="brand-byline">by Samanvitha · iPhone 12 on amazon.in</span>
+        </span>
+      </a>
+      <div class="nav-right">
+        <div class="nav-links">
+          <a href="/" class="{{ 'active' if request.path == '/' else '' }}">Dashboard</a>
+          <a href="/test-sentiment" class="{{ 'active' if request.path == '/test-sentiment' else '' }}">Test Sentiment</a>
+          <a href="/browse-reviews" class="{{ 'active' if request.path == '/browse-reviews' else '' }}">Browse</a>
+          <a href="/api-docs" class="{{ 'active' if request.path == '/api-docs' else '' }}">API</a>
+          <a href="/docs" target="_blank" rel="noopener">Swagger<i class="ti ti-external-link" style="font-size: 0.8em; margin-left: 3px;"></i></a>
+        </div>
+        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+          <i class="ti ti-moon"></i>
+          <i class="ti ti-sun"></i>
+        </button>
+        <span class="status-dot" id="status-dot">API</span>
       </div>
     </div>
   </nav>
@@ -26,7 +52,28 @@
   </main>
 
   <footer class="footer">
-    iPhone 12 reviews from amazon.in · Built for ML Engineer assignment
+    iPhone 12 (B08L5TNJHG) · amazon.in · ML Engineer take-home submission ·
+    <a href="https://github.com/SamanvithaDasari/amazon-review-analyzer" target="_blank" rel="noopener">GitHub</a>
   </footer>
+
+  <script>
+    // Health-check indicator
+    (function() {
+      const dot = document.getElementById('status-dot');
+      fetch('/api/health').then(r => r.ok ? dot.classList.add('ok') : dot.classList.add('fail'))
+        .catch(() => dot.classList.add('fail'));
+    })();
+
+    // Theme toggle
+    (function() {
+      const btn = document.getElementById('theme-toggle');
+      btn.addEventListener('click', () => {
+        const cur = document.documentElement.getAttribute('data-theme') || 'light';
+        const next = cur === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem('theme', next);
+      });
+    })();
+  </script>
 </body>
 </html>

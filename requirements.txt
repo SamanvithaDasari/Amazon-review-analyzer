@@ -31,4 +31,5 @@ wordcloud==1.9.3
 
 # Testing
 pytest==8.3.3
-httpx==0.27.2playwright==1.48.0
+httpx==0.27.2
+playwright==1.48.0

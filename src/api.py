@@ -59,9 +59,13 @@ class SentimentResponse(BaseModel):
 # ---------------------------------------------------------------------------
 @app.get("/health", tags=["meta"])
 def health():
-    """Liveness probe. Returns 200 if the service is up."""
+    """Alias for /health under /api/ prefix, used by the frontend status indicator."""
     return {"status": "ok"}
 
+@app.get("/api/health")
+def health_api():
+    """Alias for /health under the /api prefix, used by the frontend status dot."""
+    return {"status": "ok"}
 
 @app.post("/api/sentiment", response_model=SentimentResponse, tags=["sentiment"])
 def sentiment_endpoint(req: SentimentRequest):
